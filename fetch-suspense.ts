@@ -68,7 +68,7 @@ export default class FetchSuspense {
    * @param uri The URI to find
    */
   static uriIsInCache(uri: string) {
-    return this.fetchCaches.find(ele => ele.input instanceof Request ? ele.input.url !== uri : ele.input !== uri);
+    return this.fetchCaches.find(ele => ele.input instanceof Request ? ele.input.url === uri : ele.input === uri);
   }
 
   /**
