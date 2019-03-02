@@ -1,83 +1,89 @@
-const deepEqual = require('deep-equal');
+import deepEqual from 'deep-equal';
 
 interface FetchCache {
-  fetch?: Promise<void>;
+  readonly fetch?: Promise<void>;
   error?: any;
-  init: RequestInit | undefined;
-  input: RequestInfo;
+  readonly opts: RequestInit | undefined;
+  readonly input: RequestInfo;
   response?: any;
 }
 
-const fetchCaches: FetchCache[] = [];
+export default class FetchSuspense {
+  private static fetchCaches: FetchCache[] = [];
 
-const useFetch = (input: RequestInfo, init?: RequestInit | undefined, lifespan: number = 0) => {
-  for (const fetchCache of fetchCaches) {
-
-    // The request hasn't changed since the last call.
-    if (
-      deepEqual(input, fetchCache.input) &&
-      deepEqual(init, fetchCache.init)
-    ) {
-
-      // If an error occurred,
-      if (Object.prototype.hasOwnProperty.call(fetchCache, 'error')) {
-        throw fetchCache.error;
+  /**
+   * React suspense compatiable fetch function
+   * @param input Either the url to fetch or the request options
+   * @param [opts] The request options
+   * @param [lifespan=0] The time this element should be in the cache in ms
+   */
+  static fetch(input: RequestInfo, opts?: RequestInit, lifespan = 0) {
+    // Is there an existing fetch in the cache?
+    for (const fetchCache of this.fetchCaches) {
+      if (deepEqual(input, fetchCache.input) && deepEqual(opts, fetchCache.opts)) {
+        // Throw an error if the fetch failed
+        if (fetchCache.error != null) {
+          throw fetchCache.error;
+        }
+        // Return the response if the fetch succeeded
+        if (fetchCache.response != null) {
+          return fetchCache.response;
+        }
+        throw fetchCache.fetch;
       }
-
-      // If a response was successful,
-      if (Object.prototype.hasOwnProperty.call(fetchCache, 'response')) {
-        return fetchCache.response;
-      }
-      throw fetchCache.fetch;
     }
+
+    // Create a new fetch and add it to the cache since the cache doesn't have it
+    const fetchCache: FetchCache = {
+      opts,
+      input,
+      fetch: fetch(input, opts).then((response) => {
+        const contentType = response.headers.get('Content-Type');
+        if (contentType && contentType.includes('application/json')) {
+          return response.json();
+        } else {
+          return response.text();
+        }
+      }).then((response) => {
+        fetchCache.response = response;
+      }).catch((e) => {
+        fetchCache.error = e;
+      }).then(() => {
+        if (lifespan > 0) {
+          setTimeout(() => {
+            const index = this.fetchCaches.indexOf(fetchCache);
+            if (index !== -1) {
+              this.fetchCaches.splice(index, 1);
+            }
+          }, lifespan);
+        }
+      }),
+    };
+    this.fetchCaches.push(fetchCache);
+    throw fetchCache.fetch;
   }
 
-  // The request is new or has changed.
-  const fetchCache: FetchCache = {
-    fetch:
+  /**
+   * Removes any fetches in the cache that match the URI
+   * @param uri The URI to remove
+   */
+  static forceExpireURL(uri: string) {
+    this.fetchCaches = this.fetchCaches.filter(ele => ele.input instanceof Request ? ele.input.url !== uri : ele.input !== uri);
+  }
 
-      // Make the fetch request.
-      fetch(input, init)
+  /**
+   * Removes any fetches in the cache that match the request input & options exactly
+   * @param input Either the url to fetch or the request options
+   * @param [opts] The request options
+   */
+  static forceExpireRequest(input: RequestInfo, opts?: RequestInit) {
+    this.fetchCaches = this.fetchCaches.filter(ele => !deepEqual(input, ele.input) && !deepEqual(opts, ele.opts));
+  }
 
-        // Parse the response.
-        .then(response => {
-          const contentType = response.headers.get('Content-Type');
-          if (
-            contentType &&
-            contentType.indexOf('application/json') !== -1
-          ) {
-            return response.json();
-          }
-          return response.text();
-        })
-
-        // Cache the response.
-        .then(response => {
-          fetchCache.response = response;
-        })
-        .catch(e => {
-          fetchCache.error = e;
-        })
-
-        // Invalidate the cache.
-        .then(() => {
-          if (lifespan > 0) {
-            setTimeout(
-              () => {
-                const index = fetchCaches.indexOf(fetchCache);
-                if(index !== -1) {
-                  fetchCaches.splice(index, 1);
-                }
-              },
-              lifespan
-            );
-          }
-        }),
-    init,
-    input
-  };
-  fetchCaches.push(fetchCache);
-  throw fetchCache.fetch;
-};
-
-module.exports = useFetch;
+  /**
+   * Wipes the entire fetch cache
+   */
+  static wipeCache() {
+    this.fetchCaches = [];
+  }
+}
