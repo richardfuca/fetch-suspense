@@ -64,6 +64,14 @@ export default class FetchSuspense {
   }
 
   /**
+   * Returns if the URI is currently cached
+   * @param uri The URI to find
+   */
+  static uriIsInCache(uri: string) {
+    return this.fetchCaches.find(ele => ele.input instanceof Request ? ele.input.url !== uri : ele.input !== uri);
+  }
+
+  /**
    * Removes any fetches in the cache that match the URI
    * @param uri The URI to remove
    */
@@ -81,8 +89,8 @@ export default class FetchSuspense {
   }
 
   /**
-   * Wipes the entire fetch cache
-   */
+  * Wipes the entire fetch cache
+  */
   static wipeCache() {
     this.fetchCaches = [];
   }
